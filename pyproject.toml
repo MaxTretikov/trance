@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "trance"
+version = "0.1.0"
+description = "Discover local model provider sessions and expose them through Pydantic AI"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "pydantic-ai-slim[openai]>=2.51.0,<3",
+]
+
+[project.optional-dependencies]
+anthropic = ["pydantic-ai-slim[anthropic]>=2.51.0,<3"]
+bedrock = ["pydantic-ai-slim[bedrock]>=2.51.0,<3"]
+cerebras = ["pydantic-ai-slim[cerebras]>=2.51.0,<3"]
+cohere = ["pydantic-ai-slim[cohere]>=2.51.0,<3"]
+crusoe = ["pydantic-ai-slim[crusoe]>=2.51.0,<3"]
+google = ["pydantic-ai-slim[google]>=2.51.0,<3"]
+groq = ["pydantic-ai-slim[groq]>=2.51.0,<3"]
+huggingface = ["pydantic-ai-slim[huggingface]>=2.51.0,<3"]
+mistral = ["pydantic-ai-slim[mistral]>=2.51.0,<3"]
+openrouter = ["pydantic-ai-slim[openrouter]>=2.51.0,<3"]
+voyageai = ["pydantic-ai-slim[voyageai]>=2.51.0,<3"]
+xai = ["pydantic-ai-slim[xai]>=2.51.0,<3"]
+zai = ["pydantic-ai-slim[zai]>=2.51.0,<3"]
+dev = [
+    "pytest>=8.3,<10",
+    "ruff>=0.12,<1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/trance"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
