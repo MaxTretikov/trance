@@ -18,18 +18,12 @@ accounts](https://github.com/google-gemini/gemini-cli/blob/main/docs/resources/t
 
 ## Coverage at a glance
 
-![Subscription authentication delegated to the documented Codex CLI/Pydantic AI integration](https://img.shields.io/badge/OpenAI_Codex-supported-brightgreen)
-
-![Subscription authentication delegated to the documented Claude CLI, including a saved CLI login or `CLAUDE_CODE_OAUTH_TOKEN`](https://img.shields.io/badge/Claude_Code-supported-brightgreen)
-
-![Optional integration requiring the installed official `grok` CLI and an authenticated saved session; the CLI adapter validates the session lazily when a request runs](https://img.shields.io/badge/Grok_Build_consumer-supported-brightgreen) ![`XAI_API_KEY` through the regular API-key registry; this is a separate API credential path](https://img.shields.io/badge/Grok_API_(xAI)-supported-brightgreen)
-
-![Optional saved-login integration using the installed `gemini` CLI and `~/.gemini/oauth_creds.json`; discovery emits the documented terms warning and does not provide an opt-in switch](https://img.shields.io/badge/Gemini_CLI_consumer-supported-brightgreen) ![`GOOGLE_API_KEY` or `GEMINI_API_KEY` through the regular API-key registry; this is a separate API credential path](https://img.shields.io/badge/Gemini_API-supported-brightgreen) ![Optional local Application Default Credentials (ADC); uses the `google` extra](https://img.shields.io/badge/Google_Vertex_AI-supported-brightgreen)
-
-![Optional saved account login delegated to the installed `cody` CLI](https://img.shields.io/badge/Sourcegraph_Cody-supported-brightgreen)
-
-![Optional provider-keyed `auth.json` entries for known defaults and model overrides; account/API credentials are delegated to an isolated, no-tools `opencode` CLI](https://img.shields.io/badge/OpenCode-supported-brightgreen)
-
+![Subscription authentication delegated to the documented Codex CLI/Pydantic AI integration](https://img.shields.io/badge/OpenAI_Codex-supported-brightgreen)<br>
+![Subscription authentication delegated to the documented Claude CLI, including a saved CLI login or `CLAUDE_CODE_OAUTH_TOKEN`](https://img.shields.io/badge/Claude_Code-supported-brightgreen)<br>
+![Optional integration requiring the installed official `grok` CLI and an authenticated saved session; the CLI adapter validates the session lazily when a request runs](https://img.shields.io/badge/Grok_Build_consumer-supported-brightgreen) ![`XAI_API_KEY` through the regular API-key registry; this is a separate API credential path](https://img.shields.io/badge/Grok_API_(xAI)-supported-brightgreen)<br>
+![Optional saved-login integration using the installed `gemini` CLI and `~/.gemini/oauth_creds.json`; discovery emits the documented terms warning and does not provide an opt-in switch](https://img.shields.io/badge/Gemini_CLI_consumer-supported-brightgreen) ![`GOOGLE_API_KEY` or `GEMINI_API_KEY` through the regular API-key registry; this is a separate API credential path](https://img.shields.io/badge/Gemini_API-supported-brightgreen) ![Optional local Application Default Credentials (ADC); uses the `google` extra](https://img.shields.io/badge/Google_Vertex_AI-supported-brightgreen)<br>
+![Optional saved account login delegated to the installed `cody` CLI](https://img.shields.io/badge/Sourcegraph_Cody-supported-brightgreen)<br>
+![Optional provider-keyed `auth.json` entries for known defaults and model overrides; account/API credentials are delegated to an isolated, no-tools `opencode` CLI](https://img.shields.io/badge/OpenCode-supported-brightgreen)<br>
 ![Optional local environment, profile, or SSO credential chain; uses the `bedrock` extra](https://img.shields.io/badge/AWS_Bedrock-supported-brightgreen)
 
 Grok Build and the xAI API are separate credential paths. A consumer account
