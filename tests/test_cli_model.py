@@ -169,7 +169,7 @@ def test_claude_adapter_calls_cli_without_shell_and_keeps_explicit_token(
 
 
 def test_claude_saved_login_preserves_auth_home_and_config_dir(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     fake_pydantic_ai(monkeypatch)
     captured: dict[str, object] = {}
@@ -184,16 +184,18 @@ def test_claude_saved_login_preserves_auth_home_and_config_dir(
     monkeypatch.setattr("trance.cli_model._run_bounded", run)
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/untrusted/changed-config")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "must-not-forward")
-    auth_home = "/trusted/claude-home"
+    command = str(tmp_path / "claude")
+    auth_home = tmp_path / "claude-home"
+    config_dir = tmp_path / "claude-config"
     candidate = Candidate(
         "claude-code",
         "subscription",
         "claude-cli-login",
         "claude-sonnet",
         config={
-            "command": "/fake/claude",
-            "auth_home": auth_home,
-            "config_dir": "/trusted/claude-config",
+            "command": command,
+            "auth_home": str(auth_home),
+            "config_dir": str(config_dir),
             "saved_login": "true",
         },
     )
@@ -208,7 +210,7 @@ def test_claude_saved_login_preserves_auth_home_and_config_dir(
 
     assert response.parts[0].content == "answer"
     assert captured["command"] == [
-        "/fake/claude",
+        command,
         "--safe-mode",
         "--tools",
         "",
@@ -223,15 +225,15 @@ def test_claude_saved_login_preserves_auth_home_and_config_dir(
         "<user>\nhello",
     ]
     environment = captured["environment"]
-    assert environment["HOME"] == auth_home  # type: ignore[index]
-    assert environment["USERPROFILE"] == auth_home  # type: ignore[index]
-    assert environment["CLAUDE_CONFIG_DIR"] == "/trusted/claude-config"  # type: ignore[index]
+    assert environment["HOME"] == str(auth_home)  # type: ignore[index]
+    assert environment["USERPROFILE"] == str(auth_home)  # type: ignore[index]
+    assert environment["CLAUDE_CONFIG_DIR"] == str(config_dir)  # type: ignore[index]
     assert "ANTHROPIC_API_KEY" not in environment  # type: ignore[operator]
     assert environment["HOME"] != captured["cwd"]  # type: ignore[index]
 
 
 def test_cody_saved_login_uses_stdin_and_isolates_environment(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     fake_pydantic_ai(monkeypatch)
     captured: dict[str, object] = {}
@@ -252,15 +254,16 @@ def test_cody_saved_login_uses_stdin_and_isolates_environment(
         return "answer from Cody\n"
 
     monkeypatch.setattr("trance.cli_model._run_bounded", run)
-    auth_home = "/trusted/cody-home"
+    command = str(tmp_path / "cody")
+    auth_home = tmp_path / "cody-home"
     candidate = Candidate(
         "sourcegraph-cody",
         "account",
         "cody-cli auth whoami",
         "default",
         config={
-            "command": "/fake/cody",
-            "auth_home": auth_home,
+            "command": command,
+            "auth_home": str(auth_home),
             "saved_login": "true",
         },
     )
@@ -283,20 +286,22 @@ def test_cody_saved_login_uses_stdin_and_isolates_environment(
     )
 
     assert response.parts[0].content == "answer from Cody"
-    assert captured["command"] == ["/fake/cody", "chat", "--stdin"]
+    assert captured["command"] == [command, "chat", "--stdin"]
     assert captured["stdin_text"] == "<user>\nhello"  # type: ignore[comparison-overlap]
     environment = captured["environment"]
-    assert environment["HOME"] == auth_home  # type: ignore[index]
-    assert environment["USERPROFILE"] == auth_home  # type: ignore[index]
+    assert environment["HOME"] == str(auth_home)  # type: ignore[index]
+    assert environment["USERPROFILE"] == str(auth_home)  # type: ignore[index]
     assert environment["DBUS_SESSION_BUS_ADDRESS"] == "untrusted-DBUS_SESSION_BUS_ADDRESS"  # type: ignore[index]
     assert environment["XDG_RUNTIME_DIR"] == "untrusted-XDG_RUNTIME_DIR"  # type: ignore[index]
     assert "SRC_ACCESS_TOKEN" not in environment  # type: ignore[operator]
     assert "SRC_ENDPOINT" not in environment  # type: ignore[operator]
     assert "OPENAI_API_KEY" not in environment  # type: ignore[operator]
-    assert captured["cwd"] != auth_home
+    assert captured["cwd"] != str(auth_home)
 
 
-def test_cody_explicit_model_is_passed_to_cli(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cody_explicit_model_is_passed_to_cli(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     fake_pydantic_ai(monkeypatch)
     captured: dict[str, object] = {}
 
@@ -312,12 +317,17 @@ def test_cody_explicit_model_is_passed_to_cli(monkeypatch: pytest.MonkeyPatch) -
         return "answer"
 
     monkeypatch.setattr("trance.cli_model._run_bounded", run)
+    command = str(tmp_path / "cody")
     candidate = Candidate(
         "sourcegraph-cody",
         "account",
         "cody-cli auth whoami",
         "claude-sonnet",
-        config={"command": "/fake/cody", "auth_home": "/trusted/cody-home", "saved_login": "true"},
+        config={
+            "command": command,
+            "auth_home": str(tmp_path / "cody-home"),
+            "saved_login": "true",
+        },
     )
     asyncio.run(
         build_cli_model(candidate).request(
@@ -326,7 +336,7 @@ def test_cody_explicit_model_is_passed_to_cli(monkeypatch: pytest.MonkeyPatch) -
             SimpleNamespace(function_tools=(), output_tools=(), instruction_parts=()),
         )
     )
-    assert captured["command"] == ["/fake/cody", "chat", "--stdin", "--model", "claude-sonnet"]
+    assert captured["command"] == [command, "chat", "--stdin", "--model", "claude-sonnet"]
 
 
 def test_grok_saved_login_isolated_and_promotes_refresh(
@@ -523,6 +533,7 @@ def test_opencode_cli_isolates_environment_and_stages_auth(
     monkeypatch.setattr("trance.cli_model._run_bounded", run)
     for name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "XDG_DATA_HOME", "OPENCODE_CONFIG"):
         monkeypatch.setenv(name, "untrusted-value")
+    command = str(tmp_path / "opencode")
     candidate = Candidate(
         "opencode:openai",
         "api_key",
@@ -530,7 +541,7 @@ def test_opencode_cli_isolates_environment_and_stages_auth(
         "openai/gpt-5",
         config={
             "integration": "opencode-cli",
-            "command": "/fake/opencode",
+            "command": command,
             "auth_file": str(auth_file),
             "vendor_provider": "openai",
             "saved_login": "true",
@@ -545,7 +556,7 @@ def test_opencode_cli_isolates_environment_and_stages_auth(
     )
     assert response.parts[0].content == "answer"
     assert captured["command"] == [
-        "/fake/opencode",
+        command,
         "--pure",
         "run",
         "--format",
@@ -572,12 +583,13 @@ def test_opencode_google_account_does_not_warn_as_gemini_cli(
         return '{"type":"text","part":{"type":"text","text":"answer"}}\n'
 
     monkeypatch.setattr("trance.cli_model._run_bounded", run)
+    command = str(tmp_path / "opencode")
     candidate = Candidate(
         "opencode:google",
         "account",
         "opencode-login",
         "google/gemini-2.5-pro",
-        config={"command": "/fake/opencode", "auth_file": str(auth_file), "saved_login": "true"},
+        config={"command": command, "auth_file": str(auth_file), "saved_login": "true"},
     )
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -636,7 +648,9 @@ def test_non_text_parts_and_image_output_capability_are_rejected() -> None:
         )
 
 
-def test_cli_runner_stops_at_output_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_runner_stops_at_output_limit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     class FakeProcess:
         def __init__(self) -> None:
             self.stdout = asyncio.StreamReader()
@@ -659,4 +673,4 @@ def test_cli_runner_stops_at_output_limit(monkeypatch: pytest.MonkeyPatch) -> No
     from trance.cli_model import _run_bounded
 
     with pytest.raises(CLIModelError, match="output limit"):
-        asyncio.run(_run_bounded(["fake"], {}, "/tmp", "claude-code"))
+        asyncio.run(_run_bounded(["fake"], {}, str(tmp_path), "claude-code"))

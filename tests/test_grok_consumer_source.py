@@ -23,7 +23,7 @@ def test_scan_returns_secretless_candidate_for_grok_home(tmp_path: Path) -> None
     assert candidate.secret is None
     assert candidate.config == {
         "integration": "grok-cli",
-        "command": "/usr/bin/grok",
+        "command": str(Path("/usr/bin/grok").resolve()),
         "auth_home": str(grok_home),
         "auth_file": str(grok_home / "auth.json"),
         "saved_login": "true",

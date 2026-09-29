@@ -36,7 +36,7 @@ def test_scan_emits_valid_provider_candidates_without_credentials(
     assert all(item.secret is None for item in candidates)
     assert candidates[0].source == "opencode-auth"
     assert candidates[0].config == {
-        "integration": "opencode-cli", "command": "/bin/opencode",
+        "integration": "opencode-cli", "command": str(Path("/bin/opencode").absolute()),
         "auth_file": str(path.absolute()), "vendor_provider": "openai", "saved_login": "true",
     }
     assert "secret-openai" not in repr(candidates)

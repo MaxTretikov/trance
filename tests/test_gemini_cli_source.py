@@ -34,7 +34,7 @@ def test_scan_discovers_refreshable_login_and_warns(tmp_path: Path) -> None:
     assert candidate.model_name == "auto"
     assert candidate.secret is None
     assert candidate.config == {
-        "command": "/usr/bin/gemini",
+        "command": str(Path("/usr/bin/gemini").absolute()),
         "auth_home": str(gemini_home),
         "auth_file": str(gemini_home / "oauth_creds.json"),
         "saved_login": "true",

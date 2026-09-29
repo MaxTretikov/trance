@@ -30,6 +30,16 @@ def _fake_cli_path(tmp_path: Path, name: str) -> Path:
     return path
 
 
+def _assert_cli_command(actual: object, cli_path: Path, *arguments: str) -> None:
+    """Compare a CLI invocation while allowing Windows PATH casing differences."""
+    assert isinstance(actual, (list, tuple))
+    assert actual
+    assert os.path.normcase(os.path.normpath(actual[0])) == os.path.normcase(
+        os.path.normpath(str(cli_path))
+    )
+    assert list(actual[1:]) == list(arguments)
+
+
 def test_env_and_poe_credentials_build_pydantic_models_and_agents(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -172,8 +182,9 @@ def test_saved_grok_login_builds_agent_with_isolated_cli_environment(
 
     assert result.output == "hello from fake Grok"
     command = bridge_calls["command"]
-    assert command == [  # type: ignore[comparison-overlap]
-        str(cli_path),
+    _assert_cli_command(
+        command,
+        cli_path,
         "--tools",
         "",
         "--no-subagents",
@@ -192,7 +203,7 @@ def test_saved_grok_login_builds_agent_with_isolated_cli_environment(
         "json",
         "-m",
         found[0].model_name,
-    ]
+    )
     assert all(isinstance(argument, str) for argument in command)  # type: ignore[union-attr]
     environment = bridge_calls["environment"]
     assert environment["GROK_HOME"] != str(grok_home)  # type: ignore[index]
@@ -251,8 +262,9 @@ def test_saved_gemini_login_builds_agent_with_terms_warning_and_staged_auth(
         result = asyncio.run(Agent(found[0].model).run("Say hello"))
 
     assert result.output == "hello from fake Gemini"
-    assert bridge_calls["command"] == [
-        str(cli_path),
+    _assert_cli_command(
+        bridge_calls["command"],
+        cli_path,
         "-e",
         "none",
         "-p",
@@ -261,7 +273,7 @@ def test_saved_gemini_login_builds_agent_with_terms_warning_and_staged_auth(
         "json",
         "--model",
         "auto",
-    ]
+    )
     environment = bridge_calls["environment"]
     assert environment["GEMINI_CLI_HOME"].startswith(bridge_calls["cwd"])  # type: ignore[index]
     assert environment["HOME"].startswith(bridge_calls["cwd"])  # type: ignore[index]
@@ -322,7 +334,7 @@ def test_saved_cody_login_builds_agent_with_keychain_home_and_stdin(
     assert len(found) == 1
     result = asyncio.run(Agent(found[0].model).run("Say hello"))
     assert result.output == "hello from fake Cody"
-    assert bridge_calls["command"] == [str(cli_path), "chat", "--stdin"]
+    _assert_cli_command(bridge_calls["command"], cli_path, "chat", "--stdin")
     assert bridge_calls["stdin_text"] == "<user>\nSay hello"
     assert bridge_calls["environment"]["HOME"] == str(tmp_path)  # type: ignore[index]
     assert bridge_calls["environment"]["USERPROFILE"] == str(tmp_path)  # type: ignore[index]
@@ -375,8 +387,9 @@ def test_saved_opencode_provider_builds_agent_with_deny_all_config(
     assert found[0].model_name == "anthropic/claude-haiku-4-5-20251001"
     result = asyncio.run(Agent(found[0].model).run("Say hello"))
     assert result.output == "hello from fake OpenCode"
-    assert bridge_calls["command"] == [
-        str(cli_path),
+    _assert_cli_command(
+        bridge_calls["command"],
+        cli_path,
         "--pure",
         "run",
         "--format",
@@ -384,7 +397,7 @@ def test_saved_opencode_provider_builds_agent_with_deny_all_config(
         "--model",
         "anthropic/claude-haiku-4-5-20251001",
         "<user>\nSay hello",
-    ]
+    )
     assert bridge_calls["config"] == {"permission": {"*": "deny"}, "plugin": [], "mcp": {}}
     if os.name != "nt":
         assert bridge_calls["staged_mode"] == 0o600
@@ -529,9 +542,12 @@ def test_saved_claude_login_builds_agent_and_uses_text_only_cli_bridge(
     result = asyncio.run(Agent(found[0].model).run("Say hello"))
 
     assert result.output == "hello from fake Claude"
-    assert status_calls == [([str(cli_path), "auth", "status"],)]
+    assert len(status_calls) == 1
+    assert len(status_calls[0]) == 1
+    _assert_cli_command(status_calls[0][0], cli_path, "auth", "status")
     command = bridge_calls["command"]
-    assert command[:1] == [str(cli_path)]  # type: ignore[index]
+    assert isinstance(command, list)
+    _assert_cli_command(command, cli_path, *command[1:])
     assert "--safe-mode" in command  # type: ignore[operator]
     assert "--tools" in command  # type: ignore[operator]
     assert command[command.index("--tools") + 1] == ""  # type: ignore[union-attr]
