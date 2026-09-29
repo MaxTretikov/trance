@@ -23,7 +23,7 @@ def _read_config(path: Path) -> dict[str, Any]:
     try:
         with path.open("rb") as stream:
             value = tomllib.load(stream)
-    except (OSError, tomllib.TOMLDecodeError):
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
         return {}
     return value if isinstance(value, dict) else {}
 

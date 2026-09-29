@@ -214,7 +214,10 @@ def test_grok_candidate_redacts_auth_metadata_and_rejects_symlink_paths(
     real_home.mkdir()
     (real_home / "auth.json").write_text('{"refresh_token":"synthetic-secret"}')
     link_parent = tmp_path / "linked-parent"
-    link_parent.symlink_to(tmp_path, target_is_directory=True)
+    try:
+        link_parent.symlink_to(tmp_path, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks are unavailable on this runner")
 
     monkeypatch.setattr(grok_consumer.shutil, "which", lambda *args, **kwargs: "/usr/bin/grok")
     assert grok_consumer.scan(
@@ -223,7 +226,10 @@ def test_grok_candidate_redacts_auth_metadata_and_rejects_symlink_paths(
 
     safe_home = tmp_path / "safe-home"
     safe_home.mkdir()
-    (safe_home / "auth.json").symlink_to(real_home / "auth.json")
+    try:
+        (safe_home / "auth.json").symlink_to(real_home / "auth.json")
+    except (OSError, NotImplementedError):
+        pytest.skip("file symlinks are unavailable on this runner")
     assert grok_consumer.scan(
         {"PATH": "/usr/bin", "GROK_HOME": str(safe_home)}, tmp_path
     ) == []
@@ -277,14 +283,20 @@ def test_gemini_cli_rejects_symlinked_oauth_file_and_ancestor(
     monkeypatch.setattr(gemini_cli.shutil, "which", lambda *args, **kwargs: "/usr/bin/gemini")
 
     linked_parent = tmp_path / "linked-parent"
-    linked_parent.symlink_to(tmp_path, target_is_directory=True)
+    try:
+        linked_parent.symlink_to(tmp_path, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks are unavailable on this runner")
     assert gemini_cli.scan(
         {"PATH": "/usr/bin", "GEMINI_CLI_HOME": "linked-parent/real-gemini"}, tmp_path
     ) == []
 
     safe_home = tmp_path / "safe-gemini"
     safe_home.mkdir()
-    (safe_home / "oauth_creds.json").symlink_to(auth_file)
+    try:
+        (safe_home / "oauth_creds.json").symlink_to(auth_file)
+    except (OSError, NotImplementedError):
+        pytest.skip("file symlinks are unavailable on this runner")
     assert gemini_cli.scan(
         {"PATH": "/usr/bin", "GEMINI_CLI_HOME": str(safe_home)}, tmp_path
     ) == []

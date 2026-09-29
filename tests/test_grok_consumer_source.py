@@ -1,6 +1,8 @@
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from trance.sources.grok_consumer import scan
 
 
@@ -79,7 +81,10 @@ def test_scan_requires_safe_auth_path_directory(tmp_path: Path) -> None:
 
     target = tmp_path / "real-credentials"
     target.mkdir()
-    auth_file.parent.symlink_to(target, target_is_directory=True)
+    try:
+        auth_file.parent.symlink_to(target, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks are unavailable on this runner")
     with patch("trance.sources.grok_consumer.shutil.which", return_value="/usr/bin/grok"):
         assert scan(
             {"PATH": "/usr/bin", "GROK_AUTH_PATH": str(auth_file)},
@@ -124,7 +129,10 @@ def test_scan_rejects_symlinked_grok_home(tmp_path: Path) -> None:
     (target / "auth.json").write_text(
         '{"session":{"auth_mode":"oidc","key":"opaque"}}', encoding="utf-8"
     )
-    (tmp_path / ".grok").symlink_to(target, target_is_directory=True)
+    try:
+        (tmp_path / ".grok").symlink_to(target, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks are unavailable on this runner")
 
     with patch("trance.sources.grok_consumer.shutil.which", return_value="/usr/bin/grok"):
         assert scan({"PATH": "/usr/bin"}, tmp_path) == []
@@ -137,7 +145,10 @@ def test_scan_rejects_symlinked_grok_home_ancestor(tmp_path: Path) -> None:
         '{"session":{"auth_mode":"oidc","key":"opaque"}}', encoding="utf-8"
     )
     link = tmp_path / "linked-parent"
-    link.symlink_to(tmp_path, target_is_directory=True)
+    try:
+        link.symlink_to(tmp_path, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks are unavailable on this runner")
 
     with patch("trance.sources.grok_consumer.shutil.which", return_value="/usr/bin/grok"):
         assert scan(
@@ -151,7 +162,10 @@ def test_scan_rejects_symlinked_auth_marker(tmp_path: Path) -> None:
     grok_home.mkdir()
     target = tmp_path / "auth.json"
     target.write_text('{"session":{"auth_mode":"oidc","key":"opaque"}}', encoding="utf-8")
-    (grok_home / "auth.json").symlink_to(target)
+    try:
+        (grok_home / "auth.json").symlink_to(target)
+    except (OSError, NotImplementedError):
+        pytest.skip("file symlinks are unavailable on this runner")
 
     with patch("trance.sources.grok_consumer.shutil.which", return_value="/usr/bin/grok"):
         assert scan({"PATH": "/usr/bin"}, tmp_path) == []
@@ -165,7 +179,10 @@ def test_scan_rejects_symlinked_auth_path_ancestor(tmp_path: Path) -> None:
     auth_file = target / "grok-auth.json"
     auth_file.write_text('{"session":{"auth_mode":"oidc","key":"opaque"}}', encoding="utf-8")
     link = tmp_path / "linked-credentials"
-    link.symlink_to(target, target_is_directory=True)
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks are unavailable on this runner")
 
     with patch("trance.sources.grok_consumer.shutil.which", return_value="/usr/bin/grok"):
         assert scan(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -16,6 +17,17 @@ from trance import scan
 
 def _forbid_subprocess(*_args, **_kwargs):
     raise AssertionError("local integration scan attempted a CLI probe")
+
+
+def _fake_cli_path(tmp_path: Path, name: str) -> Path:
+    """Create a PATH-discoverable placeholder on each runner OS."""
+    suffix = ".cmd" if os.name == "nt" else ""
+    path = tmp_path / "bin" / f"{name}{suffix}"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("@echo off\n" if os.name == "nt" else "#!/bin/sh\n", encoding="utf-8")
+    if os.name != "nt":
+        path.chmod(0o700)
+    return path
 
 
 def test_env_and_poe_credentials_build_pydantic_models_and_agents(
@@ -128,10 +140,7 @@ def test_saved_grok_login_builds_agent_with_isolated_cli_environment(
         }
     )
     auth_file.write_text(auth_contents, encoding="utf-8")
-    cli_path = tmp_path / "bin" / "grok"
-    cli_path.parent.mkdir()
-    cli_path.write_text("#!/bin/sh\n", encoding="utf-8")
-    cli_path.chmod(0o700)
+    cli_path = _fake_cli_path(tmp_path, "grok")
     bridge_calls: dict[str, object] = {}
 
     async def fake_cli(
@@ -141,7 +150,9 @@ def test_saved_grok_login_builds_agent_with_isolated_cli_environment(
         staged_auth = Path(environment["GROK_AUTH_PATH"])
         bridge_calls["staged_auth_is_file"] = staged_auth.is_file()
         bridge_calls["staged_auth_is_symlink"] = staged_auth.is_symlink()
-        bridge_calls["staged_auth_mode"] = staged_auth.stat().st_mode & 0o777
+        bridge_calls["staged_auth_mode"] = (
+            staged_auth.stat().st_mode & 0o777 if os.name != "nt" else None
+        )
         bridge_calls["staged_auth_contents"] = staged_auth.read_text(encoding="utf-8")
         return '{"text":"hello from fake Grok"}'
 
@@ -191,7 +202,8 @@ def test_saved_grok_login_builds_agent_with_isolated_cli_environment(
     assert staged_auth != auth_file
     assert bridge_calls["staged_auth_is_file"] is True
     assert bridge_calls["staged_auth_is_symlink"] is False
-    assert bridge_calls["staged_auth_mode"] == 0o600
+    if os.name != "nt":
+        assert bridge_calls["staged_auth_mode"] == 0o600
     assert bridge_calls["staged_auth_contents"] == auth_contents
     assert environment["HOME"].startswith(bridge_calls["cwd"])  # type: ignore[index]
     assert environment["HOME"] != str(tmp_path / "untrusted-home")  # type: ignore[index]
@@ -209,10 +221,7 @@ def test_saved_gemini_login_builds_agent_with_terms_warning_and_staged_auth(
     auth_file = gemini_home / "oauth_creds.json"
     auth_contents = '{"refresh_token":"synthetic-gemini-refresh"}'
     auth_file.write_text(auth_contents, encoding="utf-8")
-    cli_path = tmp_path / "bin" / "gemini"
-    cli_path.parent.mkdir()
-    cli_path.write_text("#!/bin/sh\n", encoding="utf-8")
-    cli_path.chmod(0o700)
+    cli_path = _fake_cli_path(tmp_path, "gemini")
     bridge_calls: dict[str, object] = {}
 
     async def fake_cli(
@@ -223,7 +232,7 @@ def test_saved_gemini_login_builds_agent_with_terms_warning_and_staged_auth(
         settings = staged.parent / "settings.json"
         bridge_calls.update(
             staged_is_file=staged.is_file(),
-            staged_mode=staged.stat().st_mode & 0o777,
+            staged_mode=staged.stat().st_mode & 0o777 if os.name != "nt" else None,
             staged_contents=staged.read_text(encoding="utf-8"),
             settings=json.loads(settings.read_text(encoding="utf-8")),
         )
@@ -257,7 +266,8 @@ def test_saved_gemini_login_builds_agent_with_terms_warning_and_staged_auth(
     assert environment["GEMINI_CLI_HOME"].startswith(bridge_calls["cwd"])  # type: ignore[index]
     assert environment["HOME"].startswith(bridge_calls["cwd"])  # type: ignore[index]
     assert bridge_calls["staged_is_file"] is True
-    assert bridge_calls["staged_mode"] == 0o600
+    if os.name != "nt":
+        assert bridge_calls["staged_mode"] == 0o600
     assert bridge_calls["staged_contents"] == auth_contents
     assert bridge_calls["settings"] == {
         "security": {"auth": {"selectedType": "oauth-personal"}},
@@ -270,10 +280,7 @@ def test_saved_gemini_login_builds_agent_with_terms_warning_and_staged_auth(
 def test_saved_cody_login_builds_agent_with_keychain_home_and_stdin(
     monkeypatch, tmp_path: Path
 ) -> None:
-    cli_path = tmp_path / "bin" / "cody"
-    cli_path.parent.mkdir()
-    cli_path.write_text("#!/bin/sh\n", encoding="utf-8")
-    cli_path.chmod(0o700)
+    cli_path = _fake_cli_path(tmp_path, "cody")
     bridge_calls: dict[str, object] = {}
     status_calls: list[dict[str, object]] = []
 
@@ -341,10 +348,7 @@ def test_saved_opencode_provider_builds_agent_with_deny_all_config(
         }
     )
     auth_file.write_text(auth_contents, encoding="utf-8")
-    cli_path = tmp_path / "bin" / "opencode"
-    cli_path.parent.mkdir()
-    cli_path.write_text("#!/bin/sh\n", encoding="utf-8")
-    cli_path.chmod(0o700)
+    cli_path = _fake_cli_path(tmp_path, "opencode")
     bridge_calls: dict[str, object] = {}
 
     async def fake_cli(
@@ -355,7 +359,7 @@ def test_saved_opencode_provider_builds_agent_with_deny_all_config(
         bridge_calls["config"] = json.loads(config.read_text(encoding="utf-8"))
         staged = Path(environment["XDG_DATA_HOME"]) / "opencode" / "auth.json"
         bridge_calls.update(
-            staged_mode=staged.stat().st_mode & 0o777,
+            staged_mode=staged.stat().st_mode & 0o777 if os.name != "nt" else None,
             staged_contents=staged.read_text(),
         )
         return '{"type":"text","part":{"type":"text","text":"hello from fake OpenCode"}}'
@@ -382,7 +386,8 @@ def test_saved_opencode_provider_builds_agent_with_deny_all_config(
         "<user>\nSay hello",
     ]
     assert bridge_calls["config"] == {"permission": {"*": "deny"}, "plugin": [], "mcp": {}}
-    assert bridge_calls["staged_mode"] == 0o600
+    if os.name != "nt":
+        assert bridge_calls["staged_mode"] == 0o600
     assert bridge_calls["staged_contents"] == auth_contents
     assert auth_file.read_text(encoding="utf-8") == auth_contents
 
@@ -486,10 +491,7 @@ def test_saved_claude_login_builds_agent_and_uses_text_only_cli_bridge(
     credentials_dir = tmp_path / ".claude"
     credentials_dir.mkdir()
     (credentials_dir / ".credentials.json").write_text("")
-    cli_path = tmp_path / "bin" / "claude"
-    cli_path.parent.mkdir()
-    cli_path.write_text("#!/bin/sh\n")
-    cli_path.chmod(0o700)
+    cli_path = _fake_cli_path(tmp_path, "claude")
     status_calls: list[tuple[object, ...]] = []
     bridge_calls: dict[str, object] = {}
 

@@ -1,5 +1,7 @@
 # trance
 
+[![Tests](https://github.com/MaxTretikov/trance/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/MaxTretikov/trance/actions/workflows/tests.yml)
+
 `trance` discovers a limited set of documented credentials and signed-in
 coding tools already configured on your machine, then builds model objects
 using [Pydantic AI](https://ai.pydantic.dev/). It is a small Python library

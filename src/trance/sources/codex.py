@@ -51,11 +51,8 @@ def scan(environ: Mapping[str, str], home: Path) -> list[Candidate]:
     token refresh behavior). Keeping the candidate secret-free avoids copying
     the refresh token into another credential object or loggable structure.
     """
-    codex_home = (
-        Path(environ["CODEX_HOME"])
-        if environ.get("CODEX_HOME")
-        else home / ".codex"
-    )
+    configured_home = environ.get("CODEX_HOME", "").strip()
+    codex_home = Path(configured_home) if configured_home else home / ".codex"
     auth_file = codex_home / _AUTH_FILE
     if not auth_file.is_file() or not _is_chatgpt_auth(auth_file):
         return []

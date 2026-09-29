@@ -108,14 +108,20 @@ def test_scan_rejects_symlinked_cache_and_ancestors(tmp_path: Path) -> None:
     real_home = tmp_path / "real-gemini"
     _write_cache(real_home, {"refresh_token": "refresh"})
     linked_home = tmp_path / ".gemini"
-    linked_home.symlink_to(real_home, target_is_directory=True)
+    try:
+        linked_home.symlink_to(real_home, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks are unavailable on this runner")
 
     with patch("trance.sources.gemini_cli.shutil.which", return_value="/bin/gemini"):
         assert scan({"PATH": "/bin"}, tmp_path) == []
 
     linked_home.unlink()
     linked_parent = tmp_path / "linked-parent"
-    linked_parent.symlink_to(tmp_path, target_is_directory=True)
+    try:
+        linked_parent.symlink_to(tmp_path, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks are unavailable on this runner")
     with patch("trance.sources.gemini_cli.shutil.which", return_value="/bin/gemini"):
         assert scan(
             {"PATH": "/bin", "GEMINI_CLI_HOME": str(linked_parent / "real-gemini")},

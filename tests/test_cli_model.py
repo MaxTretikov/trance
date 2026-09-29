@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import types
 import warnings
@@ -445,7 +446,8 @@ def test_gemini_saved_login_isolated_and_promotes_refresh(
         captured["cwd"] = cwd
         staged = Path(environment["GEMINI_CLI_HOME"]) / ".gemini" / "oauth_creds.json"
         assert staged.is_file()
-        assert staged.stat().st_mode & 0o777 == 0o600
+        if os.name != "nt":
+            assert staged.stat().st_mode & 0o777 == 0o600
         settings = Path(environment["GEMINI_CLI_HOME"]) / ".gemini" / "settings.json"
         assert settings.read_text(encoding="utf-8") == (
             '{"security": {"auth": {"selectedType": "oauth-personal"}}, '
@@ -510,7 +512,8 @@ def test_opencode_cli_isolates_environment_and_stages_auth(
         captured.update(command=command, environment=environment, cwd=cwd, provider=provider)
         staged = Path(environment["XDG_DATA_HOME"]) / "opencode" / "auth.json"
         assert staged.read_text(encoding="utf-8") == auth_file.read_text(encoding="utf-8")
-        assert staged.stat().st_mode & 0o777 == 0o600
+        if os.name != "nt":
+            assert staged.stat().st_mode & 0o777 == 0o600
         config = Path(environment["OPENCODE_CONFIG"])
         assert config.read_text(encoding="utf-8") == (
             '{"permission":{"*":"deny"},"plugin":[],"mcp":{}}'

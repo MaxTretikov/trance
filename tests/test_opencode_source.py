@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from trance.sources import opencode
 
 
@@ -63,7 +65,10 @@ def test_scan_requires_cli_and_rejects_symlinked_paths(monkeypatch, tmp_path: Pa
     path.parent.rmdir()
     (tmp_path / ".local" / "share").rmdir()
     (tmp_path / ".local").rmdir()
-    (tmp_path / ".local").symlink_to(target, target_is_directory=True)
+    try:
+        (tmp_path / ".local").symlink_to(target, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks are unavailable on this runner")
     assert opencode.scan({"PATH": "/bin"}, tmp_path) == []
 
 
