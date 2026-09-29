@@ -46,7 +46,17 @@ jobs:
         run: uv sync --extra dev --locked
 
       - name: Run tests
-        run: uv run pytest
+        id: pytest
+        continue-on-error: true
+        run: uv run pytest --junitxml="${{ runner.temp }}/pytest-results.xml"
+
+      - name: Annotate test failures
+        if: always()
+        run: uv run python scripts/annotate_junit.py "${{ runner.temp }}/pytest-results.xml"
+
+      - name: Preserve pytest failure
+        if: steps.pytest.outcome == 'failure'
+        run: exit 1
 
       - name: Check formatting and lint
         run: uv run ruff check .
