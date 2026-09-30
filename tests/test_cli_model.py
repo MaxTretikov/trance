@@ -229,6 +229,7 @@ def test_claude_saved_login_preserves_auth_home_and_config_dir(
     assert environment["USERPROFILE"] == str(auth_home)  # type: ignore[index]
     assert environment["CLAUDE_CONFIG_DIR"] == str(config_dir)  # type: ignore[index]
     assert "ANTHROPIC_API_KEY" not in environment  # type: ignore[operator]
+    assert "CLAUDE_CODE_SIMPLE" not in environment  # type: ignore[operator]
     assert environment["HOME"] != captured["cwd"]  # type: ignore[index]
 
 

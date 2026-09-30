@@ -386,12 +386,12 @@ class _VendorCLIModel:
             for name in ("PATH", "SYSTEMROOT", "WINDIR")
             if (value := os.environ.get(name)) is not None
         }
-        if self._provider_id == "claude-code":
-            environment["CLAUDE_CODE_SIMPLE"] = "1"
         saved_login = self._candidate.config.get("saved_login") == "true" or (
             self._provider_id == "grok-consumer"
             or self._provider_id.startswith("opencode:")
         )
+        if self._provider_id == "claude-code" and not saved_login:
+            environment["CLAUDE_CODE_SIMPLE"] = "1"
         if self._candidate.secret and self._provider_id == "claude-code":
             key = self._candidate.config.get("credential_env")
             if key != "CLAUDE_CODE_OAUTH_TOKEN":
