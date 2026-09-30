@@ -49,7 +49,12 @@ def test_scan_applies_trimmed_model_override(monkeypatch, tmp_path):
 
 
 def test_scan_returns_lazy_github_cli_resolver(monkeypatch, tmp_path):
-    monkeypatch.setattr(copilot.shutil, "which", lambda *args, **kwargs: "/usr/bin/gh")
+    fake_executable = tmp_path / "gh"
+    monkeypatch.setattr(
+        copilot.shutil,
+        "which",
+        lambda *args, **kwargs: str(fake_executable),
+    )
     observed = {}
 
     def run(args, **kwargs):
@@ -77,11 +82,11 @@ def test_scan_returns_lazy_github_cli_resolver(monkeypatch, tmp_path):
     assert candidate.secret is None
     assert candidate.config == {
         "resolver": "command",
-        "executable": "/usr/bin/gh",
+        "executable": str(fake_executable.resolve()),
         "args": "auth token",
         "auth_home": str(tmp_path),
     }
-    assert observed["args"] == ["/usr/bin/gh", "auth", "status"]
+    assert observed["args"] == [str(fake_executable), "auth", "status"]
     assert observed["env"]["HOME"] == str(tmp_path)
     assert "GH_TOKEN" not in observed["env"]
     assert "GITHUB_TOKEN" not in observed["env"]
