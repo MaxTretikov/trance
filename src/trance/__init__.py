@@ -16,6 +16,7 @@ _EXPORTS = {
     "clients": ("trance.discovery", "clients"),
     "Candidate": ("trance.types", "Candidate"),
     "FoundModel": ("trance.types", "FoundModel"),
+    "TransientCLIModelError": ("trance.cli_model", "TransientCLIModelError"),
 }
 
 __all__ = ["__version__", *_EXPORTS]

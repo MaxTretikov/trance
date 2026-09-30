@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import stat
 import subprocess
 import tempfile
@@ -30,6 +31,36 @@ class UnsupportedCLIModelError(ValueError):
 
 class CLIModelError(RuntimeError):
     """Raised when a vendor CLI fails or returns an invalid response."""
+
+
+class TransientCLIModelError(CLIModelError):
+    """Raised when a CLI failure may succeed if retried later.
+
+    ``retry_after_seconds`` is provider supplied timing metadata only.  Raw
+    CLI output is deliberately never retained or included in the exception.
+    """
+
+    def __init__(self, message: str, *, retry_after_seconds: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
+
+_RETRY_AFTER = re.compile(r"(?:retry[- _]?after)\s*[:=]\s*(\d+(?:\.\d+)?)", re.I)
+_HTTP_STATUS = re.compile(r"\b([45]\d\d)\b")
+
+
+def _classify_cli_failure(provider: str, returncode: int, output: str) -> CLIModelError:
+    """Create a safe terminal or transient error from bounded CLI output."""
+    statuses = {int(match.group(1)) for match in _HTTP_STATUS.finditer(output)}
+    retry_match = _RETRY_AFTER.search(output)
+    retry_after = float(retry_match.group(1)) if retry_match else None
+    if 429 in statuses or re.search(r"rate\s*limit|too\s*many\s*requests", output, re.I):
+        return TransientCLIModelError(
+            f"{provider} CLI rate limited", retry_after_seconds=retry_after
+        )
+    if any(500 <= status <= 599 for status in statuses):
+        return TransientCLIModelError(f"{provider} CLI temporary server failure")
+    return CLIModelError(f"{provider} CLI exited with status {returncode}")
 
 
 def _text_from_messages(messages: list[Any], parameters: Any) -> str:
@@ -555,7 +586,7 @@ class _VendorCLIModel:
                             opencode_staged_original,
                         )
         except TimeoutError as exc:
-            raise CLIModelError(f"{self._provider_id} CLI timed out") from exc
+            raise TransientCLIModelError(f"{self._provider_id} CLI timed out") from exc
         except OSError as exc:
             raise CLIModelError(f"Could not start {self._provider_id} CLI") from exc
         from pydantic_ai.messages import ModelResponse, TextPart
@@ -576,14 +607,17 @@ async def _run_bounded(
         *command,
         stdin=asyncio.subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
         cwd=cwd,
         env=environment,
         limit=64 * 1024,
     )
     assert process.stdout is not None
+    stderr = getattr(process, "stderr", None)
     chunks: list[bytes] = []
+    error_chunks: list[bytes] = []
     size = 0
+    error_size = 0
 
     async def read_output() -> None:
         nonlocal size
@@ -593,6 +627,17 @@ async def _run_bounded(
                 process.kill()
                 raise CLIModelError(f"{_MAX_OUTPUT_BYTES}-byte output limit exceeded")
             chunks.append(chunk)
+
+    async def read_error() -> None:
+        nonlocal error_size
+        if stderr is None:
+            return
+        while chunk := await stderr.read(64 * 1024):
+            error_size += len(chunk)
+            if error_size > _MAX_OUTPUT_BYTES:
+                process.kill()
+                raise CLIModelError(f"{_MAX_OUTPUT_BYTES}-byte output limit exceeded")
+            error_chunks.append(chunk)
 
     async def write_input() -> None:
         if stdin_text is None:
@@ -605,7 +650,8 @@ async def _run_bounded(
 
     try:
         await asyncio.wait_for(
-            asyncio.gather(process.wait(), read_output(), write_input()), _TIMEOUT_SECONDS
+            asyncio.gather(process.wait(), read_output(), read_error(), write_input()),
+            _TIMEOUT_SECONDS,
         )
     except BaseException:
         if process.returncode is None:
@@ -613,7 +659,8 @@ async def _run_bounded(
             await process.wait()
         raise
     if process.returncode:
-        raise CLIModelError(f"{provider} CLI exited with status {process.returncode}")
+        bounded_output = b"".join(chunks + error_chunks).decode("utf-8", errors="replace")
+        raise _classify_cli_failure(provider, process.returncode, bounded_output)
     try:
         return b"".join(chunks).decode("utf-8")
     except UnicodeDecodeError as exc:

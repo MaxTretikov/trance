@@ -13,6 +13,7 @@ import pytest
 from trance.cli_model import (
     _MAX_AUTH_BYTES,
     CLIModelError,
+    TransientCLIModelError,
     UnsupportedCLIModelError,
     _gemini_auth_file,
     _grok_auth_file,
@@ -246,6 +247,7 @@ class FakeStdin:
 class FakeProcess:
     def __init__(self, chunks: list[bytes], returncode: int = 0) -> None:
         self.stdout = FakeStdout(chunks)
+        self.stderr = FakeStdout([])
         self.stdin = FakeStdin()
         self.returncode: int | None = None
         self.final_returncode = returncode
@@ -264,7 +266,7 @@ def test_run_bounded_drains_stdin_and_decodes_output(monkeypatch: pytest.MonkeyP
 
     async def spawn(*args: object, **kwargs: object) -> FakeProcess:
         assert kwargs["stdin"] is asyncio.subprocess.PIPE
-        assert kwargs["stderr"] is asyncio.subprocess.DEVNULL
+        assert kwargs["stderr"] is asyncio.subprocess.PIPE
         assert kwargs["limit"] == 64 * 1024
         return process
 
@@ -290,6 +292,41 @@ def test_run_bounded_reports_nonzero_and_non_utf8(monkeypatch: pytest.MonkeyPatc
         asyncio.run(_run_bounded(["fake"], {}, ".", "provider"))
 
 
+@pytest.mark.parametrize(
+    ("output", "message", "retry_after"),
+    [("HTTP 429 Too Many Requests\nRetry-After: 12", "rate limited", 12),
+     ("upstream returned HTTP 503", "temporary server failure", None)],
+)
+def test_run_bounded_classifies_safe_transient_failures(
+    monkeypatch: pytest.MonkeyPatch, output: str, message: str, retry_after: int | None
+) -> None:
+    process = FakeProcess([], returncode=1)
+    process.stderr = FakeStdout([output.encode()])
+
+    async def spawn(*args: object, **kwargs: object) -> FakeProcess:
+        return process
+
+    monkeypatch.setattr("trance.cli_model.asyncio.create_subprocess_exec", spawn)
+    with pytest.raises(TransientCLIModelError, match=message) as raised:
+        asyncio.run(_run_bounded(["fake"], {}, ".", "claude-code"))
+    assert "Retry-After" not in str(raised.value)
+    assert raised.value.retry_after_seconds == retry_after
+
+
+def test_run_bounded_keeps_auth_failures_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    process = FakeProcess([], returncode=1)
+    process.stderr = FakeStdout([b"HTTP 401 invalid secret SHOULD NOT ESCAPE"])
+
+    async def spawn(*args: object, **kwargs: object) -> FakeProcess:
+        return process
+
+    monkeypatch.setattr("trance.cli_model.asyncio.create_subprocess_exec", spawn)
+    with pytest.raises(CLIModelError) as raised:
+        asyncio.run(_run_bounded(["fake"], {}, ".", "claude-code"))
+    assert type(raised.value) is CLIModelError
+    assert "SHOULD NOT ESCAPE" not in str(raised.value)
+
+
 def test_run_bounded_kills_process_on_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     process = FakeProcess([b""])
 
@@ -306,6 +343,32 @@ def test_run_bounded_kills_process_on_timeout(monkeypatch: pytest.MonkeyPatch) -
     with pytest.raises(TimeoutError):
         asyncio.run(_run_bounded(["fake"], {}, ".", "provider"))
     assert process.killed
+
+
+def test_request_reports_subprocess_timeout_as_transient(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_pydantic_ai(monkeypatch)
+
+    async def run(*args: object, **kwargs: object) -> str:
+        raise TimeoutError
+
+    monkeypatch.setattr("trance.cli_model._run_bounded", run)
+    model = build_cli_model(
+        Candidate(
+            "claude-code",
+            "subscription",
+            "test",
+            "claude-sonnet",
+            config={"command": "claude"},
+        )
+    )
+    with pytest.raises(TransientCLIModelError, match="timed out"):
+        asyncio.run(
+            model.request(
+                [ModelRequest(UserPromptPart("hello"))], None, request_parameters()
+            )
+        )
 
 
 def test_request_uses_fresh_cwd_and_cleans_it_after_failure(
