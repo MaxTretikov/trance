@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "trance"
-version = "0.1.0"
+version = "0.2.0"
 description = "Discover local model provider sessions and adapt them to the client library you choose"
 readme = "README.md"
 requires-python = ">=3.11"
