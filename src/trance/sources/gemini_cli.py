@@ -12,7 +12,9 @@ having to opt in through a separate setting.
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import stat
 import warnings
 from collections.abc import Mapping
 from pathlib import Path
@@ -82,6 +84,48 @@ def _has_oauth_metadata(auth_file: Path) -> bool:
         return False
     refresh_token = metadata.get("refresh_token")
     return isinstance(refresh_token, str) and bool(refresh_token.strip())
+
+
+def extract_credentials(candidate: Candidate) -> Mapping[str, str]:
+    """Extract valid OAuth fields from the candidate's saved Gemini login."""
+    if candidate.provider != "gemini-cli":
+        return {}
+    configured = candidate.config.get("auth_file", "")
+    if not configured:
+        return {}
+    path = Path(configured).absolute()
+    current = Path(path.anchor)
+    descriptor = -1
+    try:
+        for component in path.parts[1:]:
+            current /= component
+            if current.is_symlink():
+                return {}
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb") as stream:
+            descriptor = -1
+            raw = stream.read(_MAX_METADATA_BYTES + 1)
+            file_stat = os.fstat(stream.fileno())
+            if len(raw) > _MAX_METADATA_BYTES or not stat.S_ISREG(file_stat.st_mode):
+                return {}
+            payload = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    if not isinstance(payload, Mapping):
+        return {}
+    refresh_token = payload.get("refresh_token")
+    if not isinstance(refresh_token, str) or not refresh_token.strip():
+        return {}
+    result: dict[str, str] = {}
+    for name in ("refresh_token", "access_token"):
+        value = payload.get(name)
+        if isinstance(value, str) and value.strip():
+            result[name] = value
+    return result
 
 
 def scan(environ: Mapping[str, str], home: Path) -> list[Candidate]:

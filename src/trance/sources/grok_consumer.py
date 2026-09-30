@@ -10,7 +10,9 @@ request transport to ``grok`` itself.
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import stat
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -74,6 +76,46 @@ def _has_oidc_record(path: Path) -> bool:
         isinstance(record, Mapping) and record.get("auth_mode") == "oidc"
         for record in payload.values()
     )
+
+
+def extract_credentials(candidate: Candidate) -> Mapping[str, str]:
+    """Extract documented explicit OIDC fields, if the auth record has any."""
+    if candidate.provider != "grok-consumer":
+        return {}
+    configured = candidate.config.get("auth_file", "")
+    if not configured:
+        return {}
+    path = Path(configured).absolute()
+    if _has_symlink_component(path):
+        return {}
+    descriptor = -1
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb") as stream:
+            descriptor = -1
+            raw = stream.read(_MAX_AUTH_BYTES + 1)
+            file_stat = os.fstat(stream.fileno())
+            if len(raw) > _MAX_AUTH_BYTES or not stat.S_ISREG(file_stat.st_mode):
+                return {}
+            payload = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    if not isinstance(payload, Mapping):
+        return {}
+    result: dict[str, str] = {}
+    for record in payload.values():
+        if not isinstance(record, Mapping) or record.get("auth_mode") != "oidc":
+            continue
+        for name in ("access_token", "refresh_token", "id_token"):
+            value = record.get(name)
+            if isinstance(value, str) and value.strip():
+                result[name] = value
+        break
+    return result
 
 
 def scan(environ: Mapping[str, str], home: Path) -> list[Candidate]:

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
+import stat
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -44,6 +46,61 @@ def _read_auth(path: Path) -> Mapping[str, object] | None:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None
     return payload if isinstance(payload, Mapping) else None
+
+
+def extract_credentials(candidate: Candidate) -> Mapping[str, str]:
+    """Extract only the selected vendor's allowlisted OpenCode fields."""
+    if not candidate.provider.startswith("opencode:"):
+        return {}
+    configured = candidate.config.get("auth_file", "")
+    vendor = candidate.config.get("vendor_provider", "").strip().lower()
+    if not configured or not _VENDOR_PATTERN.fullmatch(vendor):
+        return {}
+    if candidate.provider != f"opencode:{vendor}":
+        return {}
+    path = Path(configured).absolute()
+    if _has_symlink_component(path):
+        return {}
+    descriptor = -1
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb") as stream:
+            descriptor = -1
+            raw = stream.read(_MAX_AUTH_BYTES + 1)
+            file_stat = os.fstat(stream.fileno())
+            if len(raw) > _MAX_AUTH_BYTES or not stat.S_ISREG(file_stat.st_mode):
+                return {}
+            auth = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    if not isinstance(auth, Mapping):
+        return {}
+    entry = auth.get(vendor)
+    if not isinstance(entry, Mapping):
+        return {}
+    auth_type = entry.get("type")
+    if auth_type == "api":
+        value = entry.get("key")
+        return {"key": value} if isinstance(value, str) and value.strip() else {}
+    if auth_type == "oauth":
+        access, refresh = entry.get("access"), entry.get("refresh")
+        expires = entry.get("expires")
+        if (
+            isinstance(access, str) and access.strip()
+            and isinstance(refresh, str) and refresh.strip()
+            and isinstance(expires, (int, float)) and not isinstance(expires, bool)
+        ):
+            return {"access": access, "refresh": refresh}
+        return {}
+    if auth_type == "wellknown":
+        key, token = entry.get("key"), entry.get("token")
+        if isinstance(key, str) and key.strip() and isinstance(token, str) and token.strip():
+            return {"key": key, "token": token}
+    return {}
 
 
 def _valid_auth(entry: object) -> str | None:

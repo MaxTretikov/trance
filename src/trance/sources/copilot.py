@@ -7,6 +7,7 @@ to invoke the documented ``gh auth token`` command.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from collections.abc import Mapping
@@ -27,6 +28,55 @@ _GITHUB_CLI_AUTH_ENV_VARS = (
     "GITHUB_ENTERPRISE_TOKEN",
 )
 _MODEL_ENV = "TRANCE_MODEL_GITHUB_COPILOT"
+_STATUS_TIMEOUT_SECONDS = 2.0
+_TOKEN_TIMEOUT_SECONDS = 3.0
+
+
+def extract_credentials(
+    candidate: Candidate,
+    *,
+    environ: Mapping[str, str] | None = None,
+    home: Path | None = None,
+) -> Mapping[str, str]:
+    """Resolve a Copilot candidate's token only when explicitly requested.
+
+    The GitHub CLI is the authority for saved Copilot login state.  Keep its
+    environment free of ambient GitHub token and host selectors so a generic
+    GitHub login cannot be silently substituted.  The returned mapping is
+    intentionally small and contains no command output other than the token.
+    """
+    if candidate.provider != "github-copilot":
+        return {}
+    if candidate.secret:
+        return {"token": candidate.secret}
+    config = candidate.config
+    if config.get("resolver") not in {"command", "github-cli"}:
+        return {}
+    executable = config.get("executable", "gh")
+    child_env = dict(os.environ if environ is None else environ)
+    for variable in _GITHUB_CLI_AUTH_ENV_VARS:
+        child_env.pop(variable, None)
+    auth_home = str(home) if home is not None else config.get("auth_home")
+    if auth_home:
+        child_env["HOME"] = auth_home
+    try:
+        result = subprocess.run(
+            [executable, "auth", "token"],
+            env=child_env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=_TOKEN_TIMEOUT_SECONDS,
+            check=False,
+            shell=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError("GitHub CLI token resolution failed") from exc
+    token = result.stdout.strip()
+    if result.returncode != 0 or not token:
+        raise RuntimeError("GitHub CLI did not return an authenticated token")
+    return {"token": token}
 
 
 def scan(environ: Mapping[str, str], home: Path) -> list[Candidate]:
@@ -75,7 +125,7 @@ def scan(environ: Mapping[str, str], home: Path) -> list[Candidate]:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 check=False,
-                timeout=2,
+                timeout=_STATUS_TIMEOUT_SECONDS,
             ).returncode == 0
         except (OSError, subprocess.TimeoutExpired):
             authenticated = False
@@ -91,8 +141,9 @@ def scan(environ: Mapping[str, str], home: Path) -> list[Candidate]:
                 model_name=model_name,
                 config={
                     "resolver": "command",
-                    "executable": "gh",
+                    "executable": str(Path(gh).resolve()),
                     "args": "auth token",
+                    "auth_home": str(home.expanduser().resolve()),
                 },
             )
         )

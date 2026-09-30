@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from trance import discovery
-from trance.types import Candidate, FoundModel
+from trance.types import Candidate
 
 
 def _candidate(source: str, secret: str = "secret", provider: str = "demo") -> Candidate:
@@ -17,38 +17,19 @@ def _candidate(source: str, secret: str = "secret", provider: str = "demo") -> C
     )
 
 
-def test_scan_materializes_candidates_and_preserves_sources(monkeypatch, tmp_path: Path):
+def test_scan_returns_candidates_and_preserves_sources(monkeypatch, tmp_path: Path):
     first = _candidate("env:DEMO_A")
     second = _candidate("env:DEMO_B", secret="another")
 
     def fake_import(name: str):
         if name.startswith("trance.sources."):
             return SimpleNamespace(scan=lambda env, home: [first, second])
-        if name == "trance.models":
-            return SimpleNamespace(build_model=lambda candidate: ("client", candidate.source))
         raise AssertionError(name)
 
     monkeypatch.setattr(discovery.importlib, "import_module", fake_import)
     monkeypatch.setattr(discovery, "_SOURCES", (("fake", "demo"),))
 
-    result = discovery.scan({}, tmp_path)
-
-    assert result == [
-        FoundModel(
-            provider="demo",
-            auth_kind="api_key",
-            source="env:DEMO_A",
-            model_name="demo-model",
-            model=("client", "env:DEMO_A"),
-        ),
-        FoundModel(
-            provider="demo",
-            auth_kind="api_key",
-            source="env:DEMO_B",
-            model_name="demo-model",
-            model=("client", "env:DEMO_B"),
-        ),
-    ]
+    assert discovery.scan({}, tmp_path) == [first, second]
 
 
 def test_scan_filters_and_deduplicates(monkeypatch, tmp_path: Path):
@@ -66,7 +47,7 @@ def test_scan_filters_and_deduplicates(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(discovery, "_SOURCES", (("fake", "demo"),))
 
     assert discovery.scan({}, tmp_path, providers=["other"]) == []
-    result = discovery.scan({}, tmp_path, providers=["demo"])
+    result = discovery.scan_models({}, tmp_path, providers=["demo"])
     assert len(result) == 1
     assert len(calls) == 1
 
@@ -104,53 +85,11 @@ def test_same_secret_from_multiple_sources_is_built_once(monkeypatch, tmp_path: 
     )
     monkeypatch.setattr(discovery, "_SOURCES", (("fake", "demo"),))
 
-    result = discovery.scan({}, tmp_path)
+    result = discovery.scan_models({}, tmp_path)
 
     assert len(result) == 1
     assert result[0].source == "env:ONE"
     assert len(built) == 1
-
-
-def test_codex_uses_standard_model_factory(monkeypatch):
-    candidate = Candidate(
-        provider="openai-codex",
-        auth_kind="subscription",
-        source="/home/user/.codex/auth.json",
-        model_name="gpt-5.6-luna",
-        config={"codex_home": "/home/user/.codex"},
-    )
-    called = []
-
-    monkeypatch.setattr(
-        discovery.importlib,
-        "import_module",
-        lambda name: SimpleNamespace(
-            build_model=lambda item: called.append((name, item)) or "codex-model"
-        ),
-    )
-
-    assert discovery._materialize(candidate) == "codex-model"
-    assert called[0][0] == "trance.models"
-
-
-def test_delegated_candidate_without_cli_adapter_is_rejected(monkeypatch):
-    candidate = Candidate(
-        provider="unsupported-cli",
-        auth_kind="subscription",
-        source="kimi CLI OAuth",
-        model_name="kimi-for-coding",
-        config={"integration": "kimi-cli", "command": "kimi"},
-    )
-    monkeypatch.setattr(
-        discovery.importlib,
-        "import_module",
-        lambda name: SimpleNamespace(
-            build_cli_model=lambda item: (_ for _ in ()).throw(ValueError("unsupported"))
-        ),
-    )
-
-    with pytest.raises(ValueError, match="No safe model adapter"):
-        discovery._materialize(candidate)
 
 
 def test_subscription_candidates_use_supported_model_factories(monkeypatch, tmp_path: Path):
@@ -234,7 +173,7 @@ def test_subscription_candidates_use_supported_model_factories(monkeypatch, tmp_
     monkeypatch.setattr(discovery.os, "access", lambda path, mode: True)
     monkeypatch.setattr(discovery.Path, "is_file", lambda self: True)
 
-    results = discovery.scan({"PATH": "/mock/bin"}, tmp_path)
+    results = discovery.scan_models({"PATH": "/mock/bin"}, tmp_path)
 
     assert [result.provider for result in results] == [
         candidate.provider for candidate in candidates.values()
@@ -276,67 +215,15 @@ def test_zai_source_is_discoverable_for_general_and_coding_plan_keys(monkeypatch
     result = discovery.scan(
         {"ZAI_API_KEY": "general-key", "ZAI_CODING_PLAN_API_KEY": "coding-key"}, tmp_path
     )
-
     assert [item.provider for item in result] == ["zai", "zai-coding-plan"]
     assert [item.auth_kind for item in result] == ["api_key", "subscription"]
 
-
-def test_copilot_cli_token_is_resolved_in_memory_before_model_build(monkeypatch, tmp_path: Path):
-    candidate = Candidate(
-        provider="github-copilot",
-        auth_kind="subscription",
-        source="github-cli",
-        model_name="gpt-5.4",
-        config={"resolver": "command", "executable": "gh", "args": "auth token"},
-    )
-    built = []
-    run_args = []
-
-    monkeypatch.setattr(
-        discovery.subprocess,
-        "run",
-        lambda *args, **kwargs: (
-            run_args.append((args, kwargs))
-            or SimpleNamespace(returncode=0, stdout="sensitive-token\n", stderr="never-log")
-        ),
-    )
-    monkeypatch.setattr(
-        discovery.importlib,
-        "import_module",
-        lambda name: (
-            SimpleNamespace(scan=lambda env, home: [candidate])
-            if name.startswith("trance.sources.")
-            else SimpleNamespace(build_model=lambda item: built.append(item) or "copilot-model")
-        ),
-    )
-    monkeypatch.setattr(discovery, "_SOURCES", (("copilot", "github-copilot"),))
-
-    result = discovery.scan(
-        {
-            "PATH": "/mock/bin",
-            "GH_TOKEN": "generic-pat-one",
-            "GITHUB_TOKEN": "generic-pat-two",
-            "GH_HOST": "ghe.example.test",
-            "GH_ENTERPRISE_TOKEN": "enterprise-pat-one",
-            "GITHUB_ENTERPRISE_TOKEN": "enterprise-pat-two",
-        },
-        tmp_path,
+    result = discovery.scan_models(
+        {"ZAI_API_KEY": "general-key", "ZAI_CODING_PLAN_API_KEY": "coding-key"}, tmp_path
     )
 
-    assert len(result) == 1
-    assert result[0].model == "copilot-model"
-    assert result[0].source == "github-cli"
-    assert built[0].source == "resolved:github-cli"
-    assert built[0].secret == "sensitive-token"
-    assert run_args[0][0][0] == ["gh", "auth", "token"]
-    assert run_args[0][1]["shell"] is False
-    assert run_args[0][1]["env"]["HOME"] == str(tmp_path)
-    assert run_args[0][1]["stderr"] == discovery.subprocess.DEVNULL
-    assert "GH_TOKEN" not in run_args[0][1]["env"]
-    assert "GITHUB_TOKEN" not in run_args[0][1]["env"]
-    assert "GH_HOST" not in run_args[0][1]["env"]
-    assert "GH_ENTERPRISE_TOKEN" not in run_args[0][1]["env"]
-    assert "GITHUB_ENTERPRISE_TOKEN" not in run_args[0][1]["env"]
+    assert [item.provider for item in result] == ["zai", "zai-coding-plan"]
+    assert [item.auth_kind for item in result] == ["api_key", "subscription"]
 
 
 def test_unsafe_or_unsupported_cli_sources_are_not_scanned():
@@ -408,7 +295,7 @@ def test_grok_consumer_candidate_uses_cli_model_factory(monkeypatch, tmp_path: P
     monkeypatch.setattr(discovery.importlib, "import_module", fake_import)
     monkeypatch.setattr(discovery, "_SOURCES", (("grok_consumer", "grok-consumer"),))
 
-    result = discovery.scan({}, tmp_path, providers=["grok-consumer"])
+    result = discovery.scan_models({}, tmp_path, providers=["grok-consumer"])
 
     assert len(result) == 1
     assert result[0].provider == "grok-consumer"
@@ -442,7 +329,7 @@ def test_gemini_cli_candidate_uses_cli_model_factory(monkeypatch, tmp_path: Path
     monkeypatch.setattr(discovery.importlib, "import_module", fake_import)
     monkeypatch.setattr(discovery, "_SOURCES", (("gemini_cli", "gemini-cli"),))
 
-    result = discovery.scan({}, tmp_path, providers=["gemini-cli"])
+    result = discovery.scan_models({}, tmp_path, providers=["gemini-cli"])
 
     assert len(result) == 1
     assert result[0].provider == "gemini-cli"
@@ -488,42 +375,10 @@ def test_cody_and_opencode_candidates_use_cli_factory_with_dynamic_filter(
     monkeypatch.setattr(discovery.importlib, "import_module", fake_import)
     monkeypatch.setattr(discovery, "_SOURCES", (("opencode", "opencode:*"),))
 
-    result = discovery.scan({}, tmp_path, providers=["opencode:openai"])
+    result = discovery.scan_models({}, tmp_path, providers=["opencode:openai"])
 
     assert [item.provider for item in result] == ["opencode:openai"]
     assert [item.provider for item in built] == ["opencode:openai"]
-
-
-def test_aws_and_vertex_candidates_use_standard_model_factory(monkeypatch):
-    candidates = [
-        Candidate(
-            provider="aws-bedrock",
-            auth_kind="account",
-            source="aws-config",
-            model_name="anthropic.claude-3-5-sonnet",
-            config={"integration": "aws-bedrock"},
-        ),
-        Candidate(
-            provider="google-vertex",
-            auth_kind="account",
-            source="google-adc",
-            model_name="gemini-2.5-pro",
-            config={"integration": "google-vertex"},
-        ),
-    ]
-    built = []
-
-    monkeypatch.setattr(
-        discovery.importlib,
-        "import_module",
-        lambda name: SimpleNamespace(build_model=lambda item: built.append(item) or item.provider),
-    )
-
-    assert [discovery._materialize(candidate) for candidate in candidates] == [
-        "aws-bedrock",
-        "google-vertex",
-    ]
-    assert built == candidates
 
 
 def test_multi_provider_sources_are_scanned_with_candidate_level_filtering(
@@ -584,7 +439,7 @@ def test_multi_provider_sources_are_scanned_with_candidate_level_filtering(
         (("compatible_api", "*"), ("cloud_api", "*")),
     )
 
-    found = discovery.scan({}, tmp_path, providers=["cloud-one"])
+    found = discovery.scan_models({}, tmp_path, providers=["cloud-one"])
 
     assert scanned == ["compatible_api", "cloud_api"]
     assert [item.provider for item in found] == ["cloud-one"]
@@ -610,4 +465,4 @@ def test_claude_candidate_is_skipped_without_cli_on_supplied_path(monkeypatch, t
     )
     monkeypatch.setattr(discovery, "_SOURCES", (("claude_code", "claude-code"),))
 
-    assert discovery.scan({"PATH": ""}, tmp_path) == []
+    assert discovery.scan_models({"PATH": ""}, tmp_path) == []

@@ -12,7 +12,7 @@ import pytest
 from pydantic_ai import Agent
 from pydantic_ai.models import Model
 
-from trance import scan
+from trance import scan_models as scan
 
 
 def _forbid_subprocess(*_args, **_kwargs):

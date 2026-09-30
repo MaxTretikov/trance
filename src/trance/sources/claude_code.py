@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import stat
 import subprocess
 from collections.abc import Mapping
 from pathlib import Path
@@ -17,6 +18,65 @@ from trance.types import Candidate
 
 _TOKEN_ENV = "CLAUDE_CODE_OAUTH_TOKEN"
 _MODEL_ENV = "TRANCE_MODEL_CLAUDE_CODE"
+_MAX_CREDENTIAL_BYTES = 256 * 1024
+
+
+def _is_regular_path(path: Path) -> bool:
+    """Reject symlinked path components and require a regular file."""
+    resolved = path.absolute()
+    current = Path(resolved.anchor)
+    for component in resolved.parts[1:]:
+        current /= component
+        try:
+            if current.is_symlink():
+                return False
+        except OSError:
+            return False
+    try:
+        return stat.S_ISREG(resolved.stat().st_mode)
+    except OSError:
+        return False
+
+
+def extract_credentials(candidate: Candidate) -> Mapping[str, str]:
+    """Extract a known Claude OAuth access token from a saved login.
+
+    Claude's credentials file contains unrelated account and refresh data, so
+    only recognized OAuth objects and their access token fields are accepted.
+    Unknown JSON shapes are treated as unresolved rather than copied into the
+    returned mapping.
+    """
+    if candidate.provider != "claude-code":
+        return {}
+    if candidate.secret:
+        return {"token": candidate.secret}
+    config = candidate.config
+    auth_home = config.get("auth_home")
+    if not auth_home:
+        return {}
+    config_dir = config.get("config_dir")
+    credentials = Path(config_dir) if config_dir else Path(auth_home) / ".claude"
+    credentials = credentials / ".credentials.json"
+    if not _is_regular_path(credentials):
+        return {}
+    try:
+        with credentials.open("rb") as stream:
+            raw = stream.read(_MAX_CREDENTIAL_BYTES + 1)
+        if len(raw) > _MAX_CREDENTIAL_BYTES:
+            return {}
+        payload = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, Mapping):
+        return {}
+    for section_name in ("claudeAiOauth", "oauthAccount"):
+        section = payload.get(section_name)
+        if not isinstance(section, Mapping):
+            continue
+        token = section.get("accessToken")
+        if isinstance(token, str) and token.strip():
+            return {"token": token.strip()}
+    return {}
 
 
 def _status_explicitly_rejects_login(stdout: str) -> bool:

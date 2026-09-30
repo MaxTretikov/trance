@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from trance import cli_model, discovery
+from trance.adapters import pydantic_ai
 from trance.sources import (
     claude_code,
     codex,
@@ -102,9 +103,6 @@ def test_default_discovery_with_stubbed_factories_is_offline_and_ignores_dotenv_
         pytest.fail("discovery attempted network access")
 
     monkeypatch.setattr(urllib.request, "urlopen", forbidden_network)
-    # A stub model factory makes the assertion independent of optional SDKs.
-    monkeypatch.setattr(discovery, "_materialize", lambda candidate: object())
-
     assert discovery.scan({"PATH": "", "HOME": str(tmp_path)}, tmp_path) == []
 
 
@@ -118,8 +116,6 @@ def test_duplicate_suppression_does_not_log_or_emit_secret(
     def fake_import(name: str):
         if name == "trance.sources.fake":
             return SimpleNamespace(scan=lambda env, home: [candidate, candidate])
-        if name == "trance.models":
-            return SimpleNamespace(build_model=lambda value: calls.append(value) or object())
         raise AssertionError(f"unexpected import: {name}")
 
     monkeypatch.setattr(discovery.importlib, "import_module", fake_import)
@@ -128,7 +124,8 @@ def test_duplicate_suppression_does_not_log_or_emit_secret(
 
     result = discovery.scan({}, tmp_path)
 
-    assert len(result) == len(calls) == 1
+    assert len(result) == 1
+    assert calls == []
     assert marker not in caplog.text
     assert marker not in repr(result)
 
@@ -149,13 +146,13 @@ def test_copilot_resolution_does_not_forward_generic_github_tokens(
         observed["env"] = kwargs["env"]
         return Result()
 
-    monkeypatch.setattr(discovery.subprocess, "run", fake_run)
+    monkeypatch.setattr(copilot.subprocess, "run", fake_run)
     candidate = Candidate(
         "github-copilot", "subscription", "github-cli", "model",
         config={"resolver": "command"},
     )
 
-    resolved = discovery._resolve_copilot(
+    resolved = pydantic_ai._resolve_copilot(
         candidate,
         {"PATH": "/synthetic/bin", "GH_TOKEN": marker, "GITHUB_TOKEN": marker},
         tmp_path,
@@ -183,13 +180,13 @@ def test_copilot_resolution_does_not_forward_enterprise_github_credentials(
         observed["env"] = kwargs["env"]
         return Result()
 
-    monkeypatch.setattr(discovery.subprocess, "run", fake_run)
+    monkeypatch.setattr(copilot.subprocess, "run", fake_run)
     candidate = Candidate(
         "github-copilot", "subscription", "github-cli", "model",
         config={"resolver": "command"},
     )
 
-    discovery._resolve_copilot(
+    pydantic_ai._resolve_copilot(
         candidate,
         {
             "PATH": "/synthetic/bin",

@@ -1,6 +1,8 @@
 """Discovery of an existing Codex CLI ChatGPT subscription login."""
 
 import json
+import os
+import stat
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -42,6 +44,53 @@ def _is_chatgpt_auth(auth_file: Path) -> bool:
     if auth_mode not in (None, "chatgpt"):
         return False
     return _has_oauth_tokens(payload.get("tokens"))
+
+
+def _read_auth(path: Path) -> Mapping[str, object] | None:
+    """Read a candidate-owned auth file without following a symlink."""
+    path = path.absolute()
+    current = Path(path.anchor)
+    descriptor = -1
+    try:
+        for component in path.parts[1:]:
+            current /= component
+            if current.is_symlink():
+                return None
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb") as stream:
+            descriptor = -1
+            raw = stream.read(_MAX_AUTH_BYTES + 1)
+            file_stat = os.fstat(stream.fileno())
+            if len(raw) > _MAX_AUTH_BYTES or not stat.S_ISREG(file_stat.st_mode):
+                return None
+            payload = json.loads(raw.decode("utf-8"))
+            if not isinstance(payload, Mapping):
+                return None
+            return payload
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def extract_credentials(candidate: Candidate) -> Mapping[str, str]:
+    """Extract the three OAuth tokens from a still-valid Codex auth cache."""
+    if candidate.provider != "openai-codex":
+        return {}
+    path = Path(candidate.source)
+    payload = _read_auth(path)
+    if payload is None or "OPENAI_API_KEY" in payload:
+        return {}
+    auth_mode = payload.get("auth_mode")
+    if auth_mode not in (None, "chatgpt") or auth_mode == "apikey":
+        return {}
+    tokens = payload.get("tokens")
+    if not _has_oauth_tokens(tokens):
+        return {}
+    assert isinstance(tokens, Mapping)
+    return {name: tokens[name] for name in ("access_token", "refresh_token", "id_token")}
 
 
 def scan(environ: Mapping[str, str], home: Path) -> list[Candidate]:

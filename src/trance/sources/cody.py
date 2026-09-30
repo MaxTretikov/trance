@@ -20,6 +20,11 @@ _STATUS_TIMEOUT_SECONDS = 2.0
 _PAT_ENV_VARS = ("SRC_ACCESS_TOKEN", "SRC_ENDPOINT")
 
 
+def extract_credentials(candidate: Candidate) -> Mapping[str, str]:
+    """Return no credentials; Cody stores them in OS secure storage."""
+    return {}
+
+
 def _cli_path(environ: Mapping[str, str]) -> str | None:
     """Find Cody's documented CLI entry point on the supplied PATH."""
     path = environ.get("PATH", "")

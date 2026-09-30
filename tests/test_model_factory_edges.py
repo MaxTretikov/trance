@@ -5,12 +5,14 @@ make a network request, import an optional SDK eagerly, or expose credentials
 when one of those imports/configuration steps fails.
 """
 
+from importlib import import_module
 from types import SimpleNamespace
 
 import pytest
 
-from trance import models
 from trance.types import Candidate
+
+models = import_module("trance.models")
 
 
 class FakeProvider:

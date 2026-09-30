@@ -13,7 +13,9 @@ __version__ = "0.1.0"
 
 _EXPORTS = {
     "scan": ("trance.discovery", "scan"),
+    "scan_models": ("trance.discovery", "scan_models"),
     "clients": ("trance.discovery", "clients"),
+    "CredentialMaterial": ("trance.types", "CredentialMaterial"),
     "Candidate": ("trance.types", "Candidate"),
     "FoundModel": ("trance.types", "FoundModel"),
     "TransientCLIModelError": ("trance.cli_model", "TransientCLIModelError"),

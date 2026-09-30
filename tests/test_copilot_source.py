@@ -77,8 +77,9 @@ def test_scan_returns_lazy_github_cli_resolver(monkeypatch, tmp_path):
     assert candidate.secret is None
     assert candidate.config == {
         "resolver": "command",
-        "executable": "gh",
+        "executable": "/usr/bin/gh",
         "args": "auth token",
+        "auth_home": str(tmp_path),
     }
     assert observed["args"] == ["/usr/bin/gh", "auth", "status"]
     assert observed["env"]["HOME"] == str(tmp_path)
